@@ -2,6 +2,11 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+"""
+This file is used during interactive testing to display images along with stories
+"""
+
+
 def show_images(images, cols = 1, titles = None):
     """Display a list of images in a single figure with matplotlib.
     

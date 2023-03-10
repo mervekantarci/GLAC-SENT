@@ -1,11 +1,21 @@
+"""
+This file is based on:
+https://github.com/tkim-snu/GLACNet
+"""
 import argparse
 import os
 from PIL import Image
+
+"""
+The images in the original dataset is quite large. 
+Every image is resized to 256x256 in this file
+"""
 
 
 def resize_image(image, size):
     """Resize an image to the given size."""
     return image.resize(size, Image.ANTIALIAS)
+
 
 def resize_images(image_dir, output_dir, size):
     """Resize the images in 'image_dir' and save into 'output_dir'."""
@@ -27,6 +37,7 @@ def resize_images(image_dir, output_dir, size):
         if i % 100 == 0:
             print ("[%d/%d] Resized the images and saved into '%s'."
                    %(i, num_images, output_dir))
+
 
 def main(args):
     image_dir = args.image_dir

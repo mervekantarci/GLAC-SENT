@@ -1,8 +1,18 @@
+"""
+This file is based on:
+https://github.com/tkim-snu/GLACNet
+"""
 import nltk
 import pickle
 import argparse
 from collections import Counter
 from vist import VIST
+
+"""
+This is where vocabulary is learned.
+Vocabulary is learned over story sentences only, not description
+"""
+
 
 class Vocabulary(object):
     def __init__(self):
@@ -23,6 +33,7 @@ class Vocabulary(object):
 
     def __len__(self):
         return len(self.word2idx)
+
 
 def build_vocab(sis_file, threshold):
     vist = VIST(sis_file, )
@@ -67,6 +78,7 @@ def main(args):
 
 
 if __name__ == '__main__':
+    # see help info for arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--sis_path', type=str,
                         default='./data/sis/train.story-in-sequence.json',

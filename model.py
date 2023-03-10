@@ -1,17 +1,24 @@
+"""
+Not modified version can be found at:
+https://github.com/tkim-snu/GLACNet
+"""
 import torch
 import torch.nn as nn
 import numpy as np
 import torchvision.models as models
 from torch.autograd import Variable
 import torch.nn.functional as F
-import itertools
 import operator
-from multiprocessing.dummy import Pool as ThreadPool
-from multiprocessing import Pool
 from collections import Counter
 
+"""
+The whole network is defined in this file. Mainly;
+EncoderStory (EncoderCNN + SentenceEncoder(implicitly) + Global feature encoder) 
+DecoderStory (LSTM with dropout and FC layers)
+"""
+
 class EncoderCNN(nn.Module):
-    def __init__(self, target_size):
+    def __init__(self):
         super(EncoderCNN, self).__init__()
 
         resnet = models.resnet152(pretrained=True)
@@ -20,8 +27,8 @@ class EncoderCNN(nn.Module):
         for param in self.resnet.parameters():
             param.requires_grad = False
 
-        self.linear = nn.Linear(resnet.fc.in_features, target_size)
-        self.bn = nn.BatchNorm1d(target_size, momentum=0.01)
+        self.linear = nn.Linear(2048, 768)
+        self.bn = nn.BatchNorm1d(768, momentum=0.01)
         self.init_weights()
 
     def get_params(self):
@@ -32,8 +39,10 @@ class EncoderCNN(nn.Module):
         self.linear.bias.data.fill_(0)
 
     def forward(self, images):
-        features = self.resnet(images)
-        features = Variable(features.data)
+        """one can enable below line to extract directly from images,
+        due to memory limitations we did it before training """
+        """features = self.resnet(images)"""
+        features = Variable(images.data)
         features = features.view(features.size(0), -1)
         features = self.linear(features)
         features = self.bn(features)
@@ -46,9 +55,9 @@ class EncoderStory(nn.Module):
 
         self.hidden_size = hidden_size
         self.n_layers = n_layers
-        self.cnn = EncoderCNN(img_feature_size)
+        self.cnn = EncoderCNN()
         self.lstm = nn.LSTM(img_feature_size, hidden_size, n_layers, batch_first=True, bidirectional=True, dropout=0.5)
-        self.linear = nn.Linear(hidden_size * 2 + img_feature_size, hidden_size * 2)
+        self.linear = nn.Linear(hidden_size * 2 + img_feature_size + 768, hidden_size * 2)
         self.dropout = nn.Dropout(p=0.5)
         self.bn = nn.BatchNorm1d(hidden_size * 2, momentum=0.01)
         self.init_weights()
@@ -60,12 +69,14 @@ class EncoderStory(nn.Module):
         self.linear.weight.data.normal_(0.0, 0.02)
         self.linear.bias.data.fill_(0)
 
-    def forward(self, story_images):
+    def forward(self, story_images, sentence_embeddings):
         data_size = story_images.size()
         local_cnn = self.cnn(story_images.view(-1, data_size[2], data_size[3], data_size[4]))
         global_rnn, (hn, cn) = self.lstm(local_cnn.view(data_size[0], data_size[1], -1))
         glocal = torch.cat((local_cnn.view(data_size[0], data_size[1], -1), global_rnn), 2)
-        output = self.linear(glocal)
+        # glocal + sentence encoder in this work - renewed vector
+        sglocal = torch.cat((glocal, sentence_embeddings), 2)
+        output = self.linear(sglocal)
         output = self.dropout(output)
         output = self.bn(output.contiguous().view(-1, self.hidden_size * 2)).view(data_size[0], data_size[1], -1)
 
@@ -123,11 +134,13 @@ class DecoderRNN(nn.Module):
 
         if torch.cuda.is_available():
             self.init_input = self.init_input.cuda()
+            # self.init_input = self.init_input.cpu()
 
         self.start_vec = torch.zeros([1, vocab_size], dtype=torch.float32)
         self.start_vec[0][1] = 10000
         if torch.cuda.is_available():
             self.start_vec = self.start_vec.cuda()
+            # self.start_vec = self.start_vec.cpu()
 
         self.init_weights()
 
@@ -144,7 +157,9 @@ class DecoderRNN(nn.Module):
         if torch.cuda.is_available():
             h0 = h0.cuda()
             c0 = c0.cuda()
-            
+            # h0 = h0.cpu()
+            # c0 = c0.cpu()
+
         return (h0, c0)
 
     def init_weights(self):
@@ -170,7 +185,6 @@ class DecoderRNN(nn.Module):
 
         return outputs
 
-
     def inference(self, features):
         results = []
         (hn, cn) = self.init_hidden()
@@ -185,6 +199,7 @@ class DecoderRNN(nn.Module):
 
             feature = feature.unsqueeze(0).unsqueeze(0)
             predicted = torch.tensor([1], dtype=torch.long).cuda()
+            # predicted = torch.tensor([1], dtype=torch.long).cpu()
             lstm_input = torch.cat((feature, self.embed(predicted).unsqueeze(1)), 2)
             sampled_ids = [predicted,]
 
@@ -225,6 +240,7 @@ class DecoderRNN(nn.Module):
                 cumulated_word.append(predicted)
 
                 predicted = torch.from_numpy(np.array([predicted])).cuda()
+                # predicted = torch.from_numpy(np.array([predicted])).cpu()
                 sampled_ids.append(predicted)
 
                 if predicted == 2:
